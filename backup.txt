@@ -1,0 +1,26 @@
+export async function scrollUntilEndForReviews(page, scrollSelector, reviewSelector = '.jftiEf', maxReviews = 1000, pauseTime = 0.5, maxWaitIterations = 5) {
+  const scrollDiv = await page.$(scrollSelector);
+  if (!scrollDiv) {
+    throw new Error(`Scroll container not found with selector: ${scrollSelector}`);
+  }
+  let previousHeight = await page.evaluate(el => el.scrollHeight, scrollDiv);
+  let iterationsWithoutChange = 0;
+  let currentReviewCount = 0;
+  while (iterationsWithoutChange < maxWaitIterations) {
+    console.log(`Scrolling and waiting ${pauseTime} sec for reviews...`);
+    currentReviewCount = (await page.$$(reviewSelector)).length;
+    await page.evaluate(el => el.scrollBy(0, el.clientHeight), scrollDiv);
+    await page.waitForTimeout(pauseTime * 1000);
+    const currentHeight = await page.evaluate(el => el.scrollHeight, scrollDiv);
+    if (currentHeight === previousHeight) {
+      iterationsWithoutChange++;
+    } else {
+      iterationsWithoutChange = 0;
+    }
+    previousHeight = currentHeight;
+    currentReviewCount = (await page.$$(reviewSelector)).length;
+    if (currentReviewCount >= maxReviews) {
+      break;
+    }
+  }
+}
