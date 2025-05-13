@@ -32,6 +32,56 @@ export async function extractAddress(page) {
   return elem ? (await elem.innerText()).trim() : '';
 }
 
+export async function extractLocationLink(page) {
+  const elem = page.url();
+  return elem;
+}
+
+export async function extractLongitude(page) {
+
+  const regex = /@(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+  const waitTimeout = 10000;
+  await page.waitForURL(regex, { timeout: waitTimeout });
+  const url = page.url();
+  const match = url.match(regex);
+
+  if (match && match.length >= 3) {
+    try {
+      const longitude = parseFloat(match[2]);
+      return longitude;
+    } catch (error) {
+      console.error('Error parsing longitude:', error);
+      return null;
+    }
+  } else {
+    console.log('No valid longitude found in the URL.');
+    return null;
+  }
+}
+
+export async function extractLatitude(page) {
+  const regex = /@(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+  const waitTimeout = 10000;
+  await page.waitForURL(regex, { timeout: waitTimeout });
+  const url = page.url();
+  const match = url.match(regex);
+
+  if (match && match.length >= 3) {
+    try {
+      const latitude = parseFloat(match[1]);
+      return latitude;
+    } catch (error) {
+      console.error('Error parsing latitude:', error);
+      return null;
+    }
+  } else {
+    console.log('No valid latitude found in the URL.');
+    return null;
+  }
+}
+
+
+
 export async function extractWebsite(page) {
   const elem = await page.$("a[data-item-id='authority'] .AeaXub .rogA2c .Io6YTe");
   return elem ? (await elem.innerText()).trim() : '';

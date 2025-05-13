@@ -9,7 +9,10 @@ import {
   extractPhone,
   extractCategory,
   extractWheelchair,
-  extractWorkhours
+  extractWorkhours,
+  extractLocationLink,
+  extractLatitude,
+  extractLongitude
 } from './fieldExtractors.js';
 import { extractImages } from './imageExtractor.js';
 import { extractReviews } from './reviewExtractor.js';
@@ -69,7 +72,10 @@ export async function processSingleLink(link, fields, context, singleImage = tru
       phone: extractPhone,
       category: extractCategory,
       wheelchair: extractWheelchair,
-      workhours: extractWorkhours
+      workhours: extractWorkhours,
+      google_map_link: extractLocationLink,
+      latitude: extractLatitude,
+      longitude: extractLongitude
     };
 
     for (const field of fields) {

@@ -26,7 +26,9 @@ const listFields = [
   'wheelchair',
   'workhours',
   'images',
-  'reviews'
+  'google_map_link',
+  'latitude',
+  'longitude'
 ];
 
 (async () => {
