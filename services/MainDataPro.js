@@ -7,7 +7,7 @@ export async function processData(uniqueGoogleSearchLinks, listFields) {
   const concurrencyLimit = 7;
   
   const browser = await chromium.launch({
-    headless: false,
+    headless: true,
     args: [
       '--disable-blink-features=AutomationControlled',
       '--no-default-browser-check',

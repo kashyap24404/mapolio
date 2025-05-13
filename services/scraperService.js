@@ -63,7 +63,7 @@ export async function runScraping(user_id, task_id) {
 
     // Launch the browser ONCE
     const browser = await chromium.launch({
-      headless: false,
+      headless: true,
       args: [
         '--disable-blink-features=AutomationControlled',
         '--no-default-browser-check',
