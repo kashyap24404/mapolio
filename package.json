@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "playwright install --with-deps && playwright install-deps",
     "start": "node index.js"
   },
   "keywords": [],
