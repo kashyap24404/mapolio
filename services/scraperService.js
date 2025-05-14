@@ -174,7 +174,7 @@ export async function runScraping(user_id, task_id) {
       row_count: processedResults.length
     });
 
-    return { success: true, message: 'Scraping completed', Progress: progress};
+    return { success: true, message: 'Scraping completed'};
   } catch (error) {
     console.error('Error in scraper:', error);
     // Update status - Failed
