@@ -8,7 +8,6 @@ export async function processData(uniqueGoogleSearchLinks, listFields) {
   const concurrencyLimit = 7;
 
   const executablePath = await chromiumHelper.executablePath();
-  // Grab the helper’s recommended args (which include no-sandbox, disable-dev-shm, etc)
   const baseArgs = chromiumHelper.args;
 
   const browser = await chromium.launch({
