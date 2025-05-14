@@ -1,4 +1,5 @@
-import { launchChromium, args, executablePath } from 'playwright-aws-lambda';
+import { chromium } from 'playwright-core';
+import chromiumHelper from '@sparticuz/chromium';
 import { processSingleLink } from './ProcessSingle.js';
 
 export async function processData(uniqueGoogleSearchLinks, listFields) {
@@ -6,11 +7,21 @@ export async function processData(uniqueGoogleSearchLinks, listFields) {
   const linkQueue = uniqueGoogleSearchLinks.map(link => link.trim());
   const concurrencyLimit = 7;
 
-    const browser = await launchChromium({
-      args,
-      executablePath: await executablePath,
-      headless: true,
-    });
+  const executablePath = await chromiumHelper.executablePath();
+  // Grab the helper’s recommended args (which include no-sandbox, disable-dev-shm, etc)
+  const baseArgs = chromiumHelper.args;
+
+  const browser = await chromium.launch({
+    executablePath,
+    headless: true,
+    args: [
+      ...baseArgs,
+      '--disable-blink-features=AutomationControlled',
+      '--no-default-browser-check',
+      '--no-first-run',
+      '--disable-extensions',
+    ]
+  });
 
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",

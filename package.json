@@ -29,6 +29,7 @@
     "http-server": "^14.1.1",
     "ngrok": "^5.0.0-beta.2",
     "playwright-aws-lambda": "^0.11.0",
+    "playwright-core": "^1.52.0",
     "recaptcha-solver": "^0.3.0",
     "xlsx": "^0.18.5"
   },
