@@ -4,7 +4,7 @@ import { processData } from './MainDataPro.js';
 import { createObjectCsvWriter } from 'csv-writer';
 import { saveResultsToCsv } from '../utils/csvUtils.js';
 import path from 'path';
-import { chromium } from 'playwright';
+import { launchChromium, args, executablePath } from 'playwright-aws-lambda';
 
 // Status update function
 async function updateScrapingStatus(user_id, task_id, status, additionalData = {}) {
@@ -61,16 +61,11 @@ export async function runScraping(user_id, task_id) {
       current_state: 'Starting search phase'
     });
 
-    // Launch the browser ONCE
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--disable-extensions',
-      ]
-    });
+      const browser = await launchChromium({
+        args,
+        executablePath: await executablePath,
+        headless: true,
+      });
 
     // Create a browser context ONCE
     const context = await browser.newContext({

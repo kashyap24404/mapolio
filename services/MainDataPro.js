@@ -1,20 +1,16 @@
-import { chromium } from 'playwright';
+import { launchChromium, args, executablePath } from 'playwright-aws-lambda';
 import { processSingleLink } from './ProcessSingle.js';
 
 export async function processData(uniqueGoogleSearchLinks, listFields) {
   const results = [];
   const linkQueue = uniqueGoogleSearchLinks.map(link => link.trim());
   const concurrencyLimit = 7;
-  
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-default-browser-check',
-      '--no-first-run',
-      '--disable-extensions',
-    ]
-  });
+
+    const browser = await launchChromium({
+      args,
+      executablePath: await executablePath,
+      headless: true,
+    });
 
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
