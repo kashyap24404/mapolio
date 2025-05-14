@@ -22,15 +22,20 @@ router.post('/check_request', startScraping);
 router.get('/status/:user_id/:task_id', getStatus);
 
 // Run testdirect.js script endpoint
-router.post('/run-script', (req, res) => {
+router.get('/run-script', (req, res) => {
     console.log("start");
-    exec('node testdirect.js', (error, stdout, stderr) => {
-        if (error) {
-            console.error(`exec error: ${error}`);
-            return res.status(500).send('Error executing script');
-        }
-        console.log(`stdout: ${stdout}`);
-        console.error(`stderr: ${stderr}`);
+    const child = exec('node testdirect.js');
+    
+    child.stdout.on('data', (data) => {
+        console.log(`stdout: ${data}`);
+    });
+    
+    child.stderr.on('data', (data) => {
+        console.error(`stderr: ${data}`);
+    });
+    
+    child.on('close', (code) => {
+        console.log(`child process exited with code ${code}`);
         res.send('Script executed successfully');
     });
 });
