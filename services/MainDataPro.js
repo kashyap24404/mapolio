@@ -1,5 +1,4 @@
-import { chromium } from 'playwright-core';
-import chromiumHelper from '@sparticuz/chromium';
+import { chromium } from 'playwright';
 import { processSingleLink } from './ProcessSingle.js';
 
 export async function processData(uniqueGoogleSearchLinks, listFields) {
@@ -7,14 +6,9 @@ export async function processData(uniqueGoogleSearchLinks, listFields) {
   const linkQueue = uniqueGoogleSearchLinks.map(link => link.trim());
   const concurrencyLimit = 7;
 
-  const executablePath = await chromiumHelper.executablePath();
-  const baseArgs = chromiumHelper.args;
-
   const browser = await chromium.launch({
-    executablePath,
     headless: true,
     args: [
-      ...baseArgs,
       '--disable-blink-features=AutomationControlled',
       '--no-default-browser-check',
       '--no-first-run',
