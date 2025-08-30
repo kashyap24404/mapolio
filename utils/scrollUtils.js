@@ -47,3 +47,53 @@ export async function scrollUntilImagesStop(page, pause = 1, stableIters = 3) {
     previousCount = currentCount;
   }
 }
+
+export async function scrollUntilEndForWeb(page, options = {}) {
+  const {
+    pause = 2,
+    stableIterations = 4,
+    scrollContainerSelector = 'div.w6VYqd .e07Vkf.kA9KIf',
+    endOfResultsSelector = 'iframe.rvN3ke'
+  } = options;
+
+  const scrollContainerLocator = page.locator(scrollContainerSelector).first();
+  const endOfResultsLocator = page.locator(endOfResultsSelector);
+
+  if (await scrollContainerLocator.count() === 0) {
+    throw new Error(`Scroll container not found with selector: ${scrollContainerSelector}`);
+  }
+
+  let stableCount = 0;
+
+  while (true) {
+    const previousHeight = await scrollContainerLocator.evaluate(el => el.scrollHeight);
+
+    await scrollContainerLocator.evaluate(el => {
+      el.scrollTop = el.scrollHeight;
+    });
+
+    try {
+      await Promise.race([
+        endOfResultsLocator.waitFor({ state: 'visible', timeout: pause * 1000 }),
+        page.waitForTimeout(pause * 1000)
+      ]);
+    } catch (e) {
+      // This is expected if the waitFor times out, so we can ignore it.
+    }
+
+    if (await endOfResultsLocator.count() > 0) {
+      break;
+    }
+    
+    const currentHeight = await scrollContainerLocator.evaluate(el => el.scrollHeight);
+
+    if (currentHeight === previousHeight) {
+      stableCount++;
+      if (stableCount >= stableIterations) {
+        break;
+      }
+    } else {
+      stableCount = 0;
+    }
+  }
+}

@@ -16,7 +16,7 @@ function convertToHd(url) {
  * @param {boolean} singleImage
  * @returns {Promise<{images: string, error?: string}>}
  */
-export async function extractImages(page, singleImage = true) {
+export async function extractImages(page, singleImage = false) {
   let imageRetries = 3;
   let images = '';
   let lastError = null;
@@ -52,6 +52,24 @@ export async function extractImages(page, singleImage = true) {
           }
         } catch {}
       }
+
+      try {
+        const emptyPaneLocator = page.locator('div[jstcache="0"] div.vasquette.pane-empty-mode');
+
+        if (await emptyPaneLocator.isVisible({ timeout: 10000 })) {
+
+          const metaImageLocator = page.locator("meta[itemprop='image'][content]");
+          const mainImageUrl = await metaImageLocator.getAttribute('content');
+
+          if (mainImageUrl) {
+            images = mainImageUrl;
+            return { images };
+          }
+        }
+      } catch (e) {
+        console.warn('No single image found in meta tag:', e);
+      }
+
       // Wait for images to load
       await page.waitForSelector('.U39Pmb[style]', { timeout: 20000 });
       // Extract image URLs

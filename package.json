@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "postinstall": "playwright install --with-deps && playwright install-deps",
-    "start": "node index.js"
+    "start": "node index.js",
+    "worker": "node worker-listener.js",
+    "start:full": "node start-all.js",
+    "dev": "nodemon index.js",
+    "dev:worker": "nodemon worker-listener.js",
+    "dev:full": "nodemon start-all.js"
   },
   "keywords": [],
   "author": "",
@@ -18,20 +22,28 @@
     "./services/*": "./services/*.js"
   },
   "dependencies": {
+    "@supabase/mcp-server-supabase": "^0.4.5",
     "@supabase/supabase-js": "^2.49.1",
+    "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "csv-parse": "^5.6.0",
     "csv-parser": "^3.2.0",
     "csv-writer": "^1.6.0",
-    "dotenv": "^16.5.0",
+    "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "http-server": "^14.1.1",
     "ngrok": "^5.0.0-beta.2",
+    "node-fetch": "^3.3.2",
+    "openapi-fetch": "^0.14.0",
     "playwright": "^1.52.0",
     "recaptcha-solver": "^0.3.0",
+    "url": "^0.11.4",
+    "uuid": "^11.1.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "patch-package": "^8.0.0",
+    "postinstall-postinstall": "^2.1.0"
   }
 }

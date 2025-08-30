@@ -18,7 +18,6 @@ export async function scrollUntilEndForReviews(page, scrollSelector, reviewSelec
   let iterationsWithoutChange = 0;
   let currentReviewCount = 0;
   while (iterationsWithoutChange < maxWaitIterations) {
-    console.log(`Scrolling and waiting ${pauseTime} sec for reviews...`);
     currentReviewCount = (await page.$$(reviewSelector)).length;
     await page.evaluate(el => el.scrollBy(0, el.clientHeight), scrollDiv);
     await page.waitForTimeout(pauseTime * 1000);
@@ -40,7 +39,7 @@ export async function scrollUntilEndForReviews(page, scrollSelector, reviewSelec
  * Extracts reviews from the Google Maps business page.
  * @param {import('playwright').Page} page
  * @param {number} maxReviews
- * @returns {Promise<{reviews: string, error?: string}>}
+ * @returns {Promise<{reviews: Array<Object>, error?: string}>}
  */
 export async function extractReviews(page, maxReviews = 100) {
   try {
@@ -57,7 +56,7 @@ export async function extractReviews(page, maxReviews = 100) {
       }
     }
     if (!reviewsButtonClicked) {
-      return { reviews: '', error: "Could not find or click the 'Reviews' tab/button." };
+      return { reviews: [], error: "Could not find or click the 'Reviews' tab/button." };
     }
     // 2. Find and click the "Sort" button, then "Newest"
     try {
@@ -103,26 +102,24 @@ export async function extractReviews(page, maxReviews = 100) {
         const reviewTextElem = await reviewElement.$('.wiI7pd');
         const reviewText = reviewTextElem ? (await reviewTextElem.innerText()).trim() : 'N/A';
         
-        // Format each individual review (WITHOUT curly braces)
-        const formattedReview = `Reviewer: ${reviewerName}\nRating: ${rating}\nTime: ${time}\nReview: ${reviewText}`;
-        allReviewsData.push(formattedReview);
+        const reviewObject = {
+          reviewer: reviewerName,
+          rating: rating,
+          date: time,
+          content: reviewText,
+        };
+        allReviewsData.push(reviewObject);
       } catch {}
     }
     
-    let reviews = '';
     if (allReviewsData.length > 0) {
-      // Log the number of reviews extracted before joining
-      console.log(`Successfully extracted ${allReviewsData.length} reviews for this place.`);
-      // Join all reviews with a separator and wrap the ENTIRE collection in a single set of curly braces
-      reviews = `{${allReviewsData.join('\n\n-----------------------\n\n')}}`;
     } else {
-      console.log("No review data extracted for this place.");
     }
     
     // After extraction, click back to main tab
     await page.click('button.hh2c6[data-tab-index="0"]', { timeout: 5000 }).catch(() => {});
-    return { reviews };
+    return { reviews: allReviewsData };
   } catch (error) {
-    return { reviews: '', error: error.message };
+    return { reviews: [], error: error.message };
   }
 }

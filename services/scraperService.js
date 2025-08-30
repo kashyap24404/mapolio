@@ -1,189 +1,267 @@
-import { supabase, supabaseAdmin } from '../config/supabase.js';
-import { searchGoogleMaps } from './searchService.js';
-import { processData } from './MainDataPro.js';
-import { createObjectCsvWriter } from 'csv-writer';
-import { saveResultsToCsv } from '../utils/csvUtils.js';
-import path from 'path';
+// services/scraperService.js
 import { chromium } from 'playwright';
-// Status update function
-async function updateScrapingStatus(user_id, task_id, status, additionalData = {}) {
-  const updateData = {
-    status,
-    updated_at: new Date().toISOString(),
-    ...additionalData
-  };
+import { supabaseAdmin, deductCredits } from '../config/supabase.js';
+import { CaptchaManager } from '../utils/captchaManager.js';
+import { SharedQueue } from './queue.js';
+import { MainDataPro } from './MainDataPro.js';
+import { linkFinderWorker, dataExtractorWorker } from './worker.js';
+import { saveResults } from './scraperHelpers.js';
+import { saveVerificationFile } from '../utils/jsonUtils.js';
+import { expandLocationRules } from '../utils/locationHydrator.js';
 
-  const { error } = await supabaseAdmin
-    .from('scraping_requests')
-    .update(updateData)
-    .eq('user_id', user_id)
-    .eq('task_id', task_id);
+const captchaManager = new CaptchaManager();
 
-  if (error) throw error;
+/**
+ * Main scraping function - accepts task object as the single argument
+ * Uses task.config as the single source of truth for all configuration
+ * @param {Object} task - Complete task row from scraper_task table
+ * @returns {Object} Results object with success status and metrics
+ */
+export async function runScrapingTask(task) {
+    console.log(`[Worker ${task.id}] ==> Starting scraping task processing.`);
+    let browser = null;
+    
+    try {
+        const { id: taskId, user_id: userId, config } = task;
+        
+        // Update task status to running
+        await updateTaskStatus(taskId, 'running', 5);
+        
+        // Extract configuration from task.config (single source of truth)
+        const searchQuery = config.search_query;
+        const dataFields = config.data_fields || ['title', 'address', 'phone'];
+        const ratingFilter = config.rating_filter || '0';
+        const advancedOptions = config.advanced_options || {};
+        
+        console.log(`Task ${taskId}: Processing "${searchQuery}" with fields: ${dataFields.join(', ')}`);
+        await updateTaskStatus(taskId, 'running', 10, null, {}, 'Initializing location processing');
+        
+        // Process location rules using locationHydrator
+        const locationQueue = await expandLocationRules(config.location_rules);
+        
+        if (locationQueue.length === 0) {
+            throw new Error("No locations could be processed from the provided location rules.");
+        }
+        
+        console.log(`Task ${taskId}: Generated ${locationQueue.length} search locations.`);
+        await updateTaskStatus(taskId, 'running', 15, null, {}, `Processing ${locationQueue.length} locations`);
+        
+        // Initialize browser with configuration from task.config
+        const browserConfig = {
+            headless: process.env.NODE_ENV === 'production',
+            args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-dev-shm-usage']
+        };
+        
+        browser = await chromium.launch(browserConfig);
+        await updateTaskStatus(taskId, 'running', 20, null, {}, 'Browser launched successfully');
+        
+        const linkFinderContext = await browser.newContext({
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        });
+        
+        const dataExtractorContext = await browser.newContext({
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"
+        });
+        
+        // Initialize processing components
+        const sharedQueue = new SharedQueue();
+        const allProcessedResults = [];
+        const mainDataPro = new MainDataPro();
+        
+        // Configure concurrency from environment or use defaults
+        const linkFinderConcurrency = parseInt(process.env.LINK_FINDER_CONCURRENCY, 10) || 5;
+        const dataExtractorConcurrency = parseInt(process.env.DATA_EXTRACTOR_CONCURRENCY, 10) || 5;
+        
+        await updateTaskStatus(taskId, 'running', 25, null, {}, 'Starting worker processes');
+        
+        // Start Link Finder Workers
+        const linkFinderPromises = Array.from({ length: linkFinderConcurrency }, (_, i) =>
+            linkFinderWorker(
+                i + 1,
+                locationQueue,
+                sharedQueue,
+                linkFinderContext,
+                searchQuery, // Use config value directly
+                ratingFilter, // Use config value directly
+                userId,
+                taskId,
+                captchaManager
+            )
+        );
+        
+        // Start Data Extractor Workers  
+        const dataExtractorPromises = Array.from({ length: dataExtractorConcurrency }, (_, i) =>
+            dataExtractorWorker(
+                i + 1,
+                sharedQueue,
+                dataFields, // Use config value directly
+                dataExtractorContext,
+                allProcessedResults,
+                mainDataPro,
+                advancedOptions // Pass advanced options for conditional processing
+            )
+        );
+        
+        await updateTaskStatus(taskId, 'running', 30, null, {}, 'Workers started, finding business links');
+        
+        // Wait for link finders to complete with dynamic progress updates
+        console.log(`Task ${taskId}: Waiting for LinkFinder workers to complete...`);
+        
+        // We can't easily track individual worker progress, but we can simulate it
+        // by updating progress periodically while waiting
+        let linkFinderProgress = 30;
+        const linkFinderInterval = setInterval(async () => {
+            if (linkFinderProgress < 45) {
+                linkFinderProgress += 1;
+                const message = linkFinderProgress % 5 === 0 ? 
+                    `Finding business links (${linkFinderProgress - 30}/15)` : 
+                    'Searching businesses in locations';
+                await updateTaskStatus(taskId, 'running', linkFinderProgress, null, {}, message);
+            }
+        }, 3000); // Update every 3 seconds
+        
+        await Promise.all(linkFinderPromises);
+        clearInterval(linkFinderInterval);
+        
+        console.log(`Task ${taskId}: All LinkFinder workers finished.`);
+        await updateTaskStatus(taskId, 'running', 50, null, {}, 'Link finding complete, extracting data');
+        
+        // Signal completion to data extractors
+        sharedQueue.notifyProducersFinished();
+        
+        // Wait for data extractors to complete with dynamic progress updates
+        console.log(`Task ${taskId}: Waiting for DataExtractor workers to complete...`);
+        
+        let dataExtractorProgress = 50;
+        const dataExtractorInterval = setInterval(async () => {
+            if (dataExtractorProgress < 80) {
+                dataExtractorProgress += 1;
+                const message = dataExtractorProgress % 5 === 0 ? 
+                    `Extracting business data (${dataExtractorProgress - 50}/30)` : 
+                    'Processing business information';
+                await updateTaskStatus(taskId, 'running', dataExtractorProgress, null, {}, message);
+            }
+        }, 2000); // Update every 2 seconds
+        
+        await Promise.all(dataExtractorPromises);
+        clearInterval(dataExtractorInterval);
+        
+        console.log(`Task ${taskId}: All DataExtractor workers finished.`);
+        await updateTaskStatus(taskId, 'running', 85, null, {}, 'Data extraction complete, processing results');
+        
+        // Process results
+        const successfulResults = allProcessedResults
+            .filter(r => r.status !== 'skipped')
+            .map(r => r.data);
+        
+        console.log(`Task ${taskId}: Extracted ${successfulResults.length} successful results from ${sharedQueue.seenLinks.size} total links.`);
+        await updateTaskStatus(taskId, 'running', 90, null, {}, `Found ${successfulResults.length} businesses, preparing results`);
+        
+        // Save verification file for skipped links
+        const skippedLinks = mainDataPro.getSkippedLinks();
+        if (skippedLinks.length > 0) {
+            await saveVerificationFile(taskId, skippedLinks);
+        }
+        
+        // Save final results
+        const { downloadLink, rowCount } = await saveTaskResults({
+            taskId,
+            userId,
+            config,
+            processedResults: successfulResults,
+            dataFields
+        });
+        
+        // Calculate credits based on row count (each row = 1 credit)
+        const creditsUsed = rowCount;
+        
+        // Deduct credits from user account
+        await deductCredits(userId, creditsUsed, taskId, `Scraping task: ${searchQuery}`);
+        
+        // Update final task status
+        await updateTaskStatus(taskId, 'completed', 100, null, {
+            total_results: rowCount,
+            credits_used: creditsUsed
+        }, `Task completed successfully with ${rowCount} results`);
+        
+        console.log(`Task ${taskId}: Scraping completed successfully. Results: ${rowCount}, Credits used: ${creditsUsed}`);
+        
+        return {
+            success: true,
+            taskId,
+            resultUrl: downloadLink,
+            rowCount,
+            creditsUsed
+        };
+        
+    } catch (error) {
+        console.error(`Critical error in task ${task.id}:`, error.message, error.stack);
+        await updateTaskStatus(task.id, 'failed', 0, error.message);
+        throw error;
+    } finally {
+        if (browser) {
+            await browser.close().catch(e => console.error(`Task ${task.id}: Error closing browser:`, e));
+        }
+    }
 }
 
-export async function runScraping(user_id, task_id) {
-  console.log("user_id", user_id);
-  console.log("task_id", task_id);
-  try {
-    // Initial status update - Starting the process
-    await updateScrapingStatus(user_id, task_id, 'processing', {
-      stage: 'initializing',
-      progress: '0%'
-    });
-
-    // Get request data from Supabase using admin client
-    const { data: requestData, error: requestError } = await supabaseAdmin
-      .from('scraping_requests')
-      .select('*')
-      .eq('user_id', user_id)
-      .eq('task_id', task_id);
-
-    if (requestError) throw requestError;
-    if (!requestData || requestData.length === 0) {
-      throw new Error('Request not found in Supabase');
-    }
-
-    const { keywords, country, states, fields, rating } = requestData[0];
-    const listFields = fields
-      ? fields.split(',').map(f => f.trim())
-      : ['title', 'avg_rating', 'rating_count', 'address', 'website', 'phone', 'images'];
-
-    // Split states by comma and trim any whitespace; use as a queue
-    const stateQueue = states.split(',').map(state => state.trim());
-    const totalStates = stateQueue.length;
-
-    // Update status - Starting search phase
-    await updateScrapingStatus(user_id, task_id, 'processing', {
-      stage: 'searching',
-      progress: '10%',
-      current_state: 'Starting search phase'
-    });
-
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-default-browser-check',
-      '--no-first-run',
-      '--disable-extensions',
-      ]
-    });
-
-    // Create a browser context ONCE
-    const context = await browser.newContext({
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
-      locale: "en-US",
-      extraHTTPHeaders: {
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-      }
-    });
-
-    // Array to accumulate all Google search links from every state
-    const GoogleSearchLinks = [];
-    const concurrencyLimit = 7;
-    let processedStates = 0;
-
-    // Worker function: picks one state from the queue until empty.
-    async function worker() {
-      while (true) {
-        const state = stateQueue.shift();
-        if (!state) break;
-
-        try {
-          // Update status for each state
-          processedStates++;
-          const progress = Math.round((processedStates / totalStates) * 30) + 10; // 10-40% range
-          await updateScrapingStatus(user_id, task_id, 'processing', {
-            stage: 'searching',
-            progress: `${progress}%`,
-            current_state: state
-          });
-
-          // Build the query for the current state
-          const query = `${keywords}+in+${state}+${country}`;
-
-          // Get links directly from Google Maps
-          const links = await searchGoogleMaps(context, query, user_id, task_id, rating);
-
-          // Accumulate the links into our global array
-          GoogleSearchLinks.push(...links);
-        } catch (err) {
-          console.error(`Error processing state "${state}":`, err);
+/**
+ * Update task status in scraper_task table
+ * @param {String} taskId - Task ID
+ * @param {String} status - New status
+ * @param {Number} progress - Progress percentage (0-100)
+ * @param {String} errorMessage - Error message if failed
+ * @param {Object} additionalData - Additional data to update
+ * @param {String} progressMessage - Progress message to display
+ */
+async function updateTaskStatus(taskId, status, progress, errorMessage = null, additionalData = {}, progressMessage = null) {
+    try {
+        const updateData = {
+            status,
+            progress,
+            updated_at: new Date().toISOString(),
+            ...additionalData
+        };
+        
+        if (errorMessage) {
+            updateData.error_message = errorMessage;
         }
-      }
+        
+        if (progressMessage) {
+            updateData.progress_message = progressMessage;
+        }
+        
+        const { error } = await supabaseAdmin
+            .from('scraper_task')
+            .update(updateData)
+            .eq('id', taskId);
+        
+        if (error) {
+            console.error(`Error updating task ${taskId}:`, error);
+        } else {
+            console.log(`📝 Task ${taskId} status updated to: ${status} (${progress}%) - ${progressMessage || 'No message'}`);
+        }
+    } catch (error) {
+        console.error(`Error updating task status for ${taskId}:`, error);
     }
+}
 
-    // Start the workers concurrently
-    const workers = [];
-    for (let i = 0; i < concurrencyLimit; i++) {
-      workers.push(worker());
-    }
-    await Promise.all(workers);
-
-    await browser.close();
-
-    // Update status - Search phase complete, starting data processing
-    await updateScrapingStatus(user_id, task_id, 'processing', {
-      stage: 'processing',
-      progress: '50%',
-      current_state: 'Processing collected data'
-    });
-
-    // Create a CSV file with all accumulated links
-    const sanitizedQuery = `${keywords}_in_${country}`.replace(/[^A-Za-z0-9]+/g, '_');
-    const linksFileName = `links_${user_id}_${task_id}_${sanitizedQuery}.csv`;
-    const linksFilePath = path.join(process.cwd(), 'public', linksFileName);
-    const csvWriter = createObjectCsvWriter({
-      path: linksFilePath,
-      header: [{ id: 'href', title: 'href' }]
-    });
-
-    const uniqueGoogleSearchLinks = Array.from(new Set(GoogleSearchLinks));
-
-    await csvWriter.writeRecords(uniqueGoogleSearchLinks.map(link => ({ href: link })));
-
-    // Update status - Starting data extraction
-    await updateScrapingStatus(user_id, task_id, 'processing', {
-      stage: 'extracting',
-      progress: '60%',
-      current_state: 'Extracting business data'
-    });
-
-    const processedResults = await processData(uniqueGoogleSearchLinks, listFields);
-
-    // Update status - Saving results
-    await updateScrapingStatus(user_id, task_id, 'processing', {
-      stage: 'saving',
-      progress: '90%',
-      current_state: 'Saving results'
-    });
-
-    // Save final results to a CSV file
-    const outputFileName = `results_${user_id}_${task_id}.csv`;
-    const outputFilePath = path.join(process.cwd(), 'public', outputFileName);
-    await saveResultsToCsv(outputFilePath, processedResults, listFields);
-
-    // Update status - Completed
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
-    const downloadLink = `${baseUrl}/download/csv/${user_id}/${task_id}`;
-    const downloadJsonLink = `${baseUrl}/download/json/${user_id}/${task_id}`;
+/**
+ * Save task results using adapted parameters from task.config
+ * @param {Object} params - Parameters object
+ * @returns {Object} Results with download link and row count
+ */
+async function saveTaskResults({ taskId, userId, config, processedResults, dataFields }) {
+    // Adapt parameters for existing saveResults function
+    const saveParams = {
+        user_id: userId,
+        task_id: taskId,
+        keywords: config.search_query,
+        states: 'multiple', // Simplified for new format
+        country: 'US', // Default, could be extracted from location_rules if needed
+        processedResults,
+        listFields: dataFields
+    };
     
-    await updateScrapingStatus(user_id, task_id, 'completed', {
-      progress: '100%',
-      result_url: downloadLink,
-      json_result_url: downloadJsonLink,
-      row_count: processedResults.length
-    });
-
-    return { success: true, message: 'Scraping completed' };
-  } catch (error) {
-    console.error('Error in scraper:', error);
-    // Update status - Failed
-    await updateScrapingStatus(user_id, task_id, 'failed', {
-      error_message: error.message
-    });
-    throw error;
-  }
+    return await saveResults(saveParams);
 }

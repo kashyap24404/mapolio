@@ -9,10 +9,11 @@ export async function getStateCity(address, retries = 3, delay = 500) {
       if (data.results && data.results.length > 0) {
         return {
           state: data.results[0].state || '',
-          city: data.results[0].city || ''
+          city: data.results[0].city || '',
+          postcode: data.results[0].postcode || ''
         };
       } else {
-        return { state: '', city: '' };
+        return { state: '', city: '', postcode: '' };
       }
     } catch (err) {
       if (attempt < retries) {
@@ -20,7 +21,7 @@ export async function getStateCity(address, retries = 3, delay = 500) {
         await new Promise(res => setTimeout(res, delay));
       } else {
         console.error('API error for address:', address, err);
-        return { state: '', city: '' };
+        return { state: '', city: '', postcode: '' };
       }
     }
   }
@@ -29,7 +30,7 @@ export async function getStateCity(address, retries = 3, delay = 500) {
 export async function getLocationFromAddress(address) {
   try {
     if (!address || typeof address !== 'string') {
-      return { city: '', area: '' };
+      return { city: '', area: '', postcode: '' };
     }
 
     const location = await getStateCity(address);

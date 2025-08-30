@@ -1,70 +1,67 @@
-import { chromium } from 'playwright';
 import { processSingleLink } from './ProcessSingle.js';
+import { extractLatitude, extractLongitude } from './fieldExtractors.js';
+import scrapingConfig from '../config/scrapingConfig.js';
 
-export async function processData(uniqueGoogleSearchLinks, listFields) {
-  const results = [];
-  const linkQueue = uniqueGoogleSearchLinks.map(link => link.trim());
-  const concurrencyLimit = 7;
-
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-default-browser-check',
-      '--no-first-run',
-      '--disable-extensions',
-    ]
-  });
-
-  const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
-    locale: "en-US",
-    extraHTTPHeaders: {
-      "Accept-Language": "en-US,en;q=0.9",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+class MainDataPro {
+    constructor() {
+        this.processedCoordinates = new Set();
+        this.skippedLinks = [];
+        this.processedCount = 0;
     }
-  });
 
-  try {
-    // Worker function: picks one link from the queue until empty
-    async function worker() {
-      while (true) {
-        const link = linkQueue.shift();
-        if (!link) break;
-
-        let retries = 10;
-        let success = false;
-        while (retries > 0 && !success) {
-          try {
-            const result = await processSingleLink(link, listFields, context);
-            results.push(result);
-            success = true;
-          } catch (err) {
-            retries--;
-            if (retries === 0) {
-              console.error(`Failed to process link ${link} after 3 attempts:`, err);
-            } else {
-              console.warn(`Retrying link ${link} (${retries} attempts remaining)`);
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-          }
+ async processData(link, listFields, context, advancedOptions = {}) {
+        this.processedCount++;
+        
+        // Log progress every 20 links
+        if (this.processedCount % 20 === 0) {
+            console.log(`MainDataPro: Processed ${this.processedCount} links so far`);
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+        
+        const lat = await extractLatitude({ url: () => link });
+        const lon = await extractLongitude({ url: () => link });
+        console.log(`Extracted coordinates for ${link}: lat=${lat}, lon=${lon}`);
+
+        if (lat && lon) {
+            const coordKey = `${lat},${lon}`;
+            if (this.processedCoordinates.has(coordKey)) {
+                console.log(`Duplicate location found based on coordinates: ${coordKey}. Skipping.`);
+                this.skippedLinks.push({ link, lat, lon });
+                return { data: {}, errors: {}, status: 'skipped' };
+            }
+            this.processedCoordinates.add(coordKey);
+        } else {
+            console.log(`Could not extract coordinates for ${link}. Proceeding without duplicate check.`);
+        }
+
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                // Merge default options with advanced options
+                // Prioritize advancedOptions, fallback to scrapingConfig defaults
+                const processingOptions = {
+                    singleImage: advancedOptions.extract_single_image !== undefined ? 
+                        advancedOptions.extract_single_image : 
+                        scrapingConfig.processingOptions.singleImage,
+                    ...advancedOptions
+                };
+                
+                const result = await processSingleLink(link, listFields, context, processingOptions);
+                return result;
+            } catch (err) {
+                retries--;
+                if (retries === 0) {
+                    console.error(`Failed to process link ${link} after 3 attempts:`, err);
+                    return { data: {}, errors: { critical: `Failed to process link after 3 attempts: ${err.message}` } };
+                }
+                console.warn(`Retrying link ${link} (${retries} attempts remaining)`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
     }
 
-    // Start the workers concurrently
-    const workers = [];
-    for (let i = 0; i < concurrencyLimit; i++) {
-      workers.push(worker());
+    getSkippedLinks() {
+        return this.skippedLinks;
     }
-    await Promise.all(workers);
-
-    return results;
-  } catch (error) {
-    throw error;
-  } finally {
-    await context.close();
-    await browser.close();
-  }
 }
+
+export { MainDataPro };
