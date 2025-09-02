@@ -32,9 +32,11 @@ export async function runScrapingTask(task) {
         const dataFields = config.data_fields || ['title', 'address', 'phone'];
         const ratingFilter = config.rating_filter || '0';
         const advancedOptions = config.advanced_options || {};
+        // Use total_selected_zip_codes from frontend config as the source of truth
+        const totalZipCodes = config.total_selected_zip_codes || 0;
         
         console.log(`Task ${taskId}: Processing "${searchQuery}" with fields: ${dataFields.join(', ')}`);
-        await updateTaskStatus(taskId, 'running', 10, null, {}, 'Initializing location processing');
+        await updateTaskStatus(taskId, 'running', 10, null, {});
         
         // Process location rules using locationHydrator
         const locationQueue = await expandLocationRules(config.location_rules);
@@ -44,7 +46,9 @@ export async function runScrapingTask(task) {
         }
         
         console.log(`Task ${taskId}: Generated ${locationQueue.length} search locations.`);
-        await updateTaskStatus(taskId, 'running', 15, null, {}, `Processing ${locationQueue.length} locations`);
+        // Use the frontend-provided total for progress tracking, but don't store it in DB
+        console.log(`Task ${taskId}: Total ZIP codes for progress tracking: ${totalZipCodes}`);
+        await updateTaskStatus(taskId, 'running', 15, null, {});
         
         // Initialize browser with configuration from task.config
         const browserConfig = {
@@ -53,7 +57,7 @@ export async function runScrapingTask(task) {
         };
         
         browser = await chromium.launch(browserConfig);
-        await updateTaskStatus(taskId, 'running', 20, null, {}, 'Browser launched successfully');
+        await updateTaskStatus(taskId, 'running', 20, null, {});
         
         const linkFinderContext = await browser.newContext({
             userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
@@ -72,7 +76,7 @@ export async function runScrapingTask(task) {
         const linkFinderConcurrency = parseInt(process.env.LINK_FINDER_CONCURRENCY, 10) || 5;
         const dataExtractorConcurrency = parseInt(process.env.DATA_EXTRACTOR_CONCURRENCY, 10) || 5;
         
-        await updateTaskStatus(taskId, 'running', 25, null, {}, 'Starting worker processes');
+        await updateTaskStatus(taskId, 'running', 25, null, {});
         
         // Start Link Finder Workers
         const linkFinderPromises = Array.from({ length: linkFinderConcurrency }, (_, i) =>
@@ -102,21 +106,19 @@ export async function runScrapingTask(task) {
             )
         );
         
-        await updateTaskStatus(taskId, 'running', 30, null, {}, 'Workers started, finding business links');
+        await updateTaskStatus(taskId, 'running', 30, null, {});
         
         // Wait for link finders to complete with dynamic progress updates
         console.log(`Task ${taskId}: Waiting for LinkFinder workers to complete...`);
         
-        // We can't easily track individual worker progress, but we can simulate it
-        // by updating progress periodically while waiting
-        let linkFinderProgress = 30;
+        // Track link finder progress based on queue size using frontend-provided total
         const linkFinderInterval = setInterval(async () => {
-            if (linkFinderProgress < 45) {
-                linkFinderProgress += 1;
-                const message = linkFinderProgress % 5 === 0 ? 
-                    `Finding business links (${linkFinderProgress - 30}/15)` : 
-                    'Searching businesses in locations';
-                await updateTaskStatus(taskId, 'running', linkFinderProgress, null, {}, message);
+            if (totalZipCodes > 0) {
+                // Calculate progress based on how many locations have been processed
+                // We assume link finding is about 35% of the total work (from progress 15 to 50)
+                const processedLocations = totalZipCodes - locationQueue.length;
+                const linkFinderProgress = 15 + Math.min(35, Math.floor((processedLocations / totalZipCodes) * 35));
+                await updateTaskStatus(taskId, 'running', linkFinderProgress, null, {});
             }
         }, 3000); // Update every 3 seconds
         
@@ -124,7 +126,7 @@ export async function runScrapingTask(task) {
         clearInterval(linkFinderInterval);
         
         console.log(`Task ${taskId}: All LinkFinder workers finished.`);
-        await updateTaskStatus(taskId, 'running', 50, null, {}, 'Link finding complete, extracting data');
+        await updateTaskStatus(taskId, 'running', 50, null, {});
         
         // Signal completion to data extractors
         sharedQueue.notifyProducersFinished();
@@ -132,14 +134,17 @@ export async function runScrapingTask(task) {
         // Wait for data extractors to complete with dynamic progress updates
         console.log(`Task ${taskId}: Waiting for DataExtractor workers to complete...`);
         
-        let dataExtractorProgress = 50;
+        // Track data extractor progress based on queue size and processed results
+        const initialQueueSize = sharedQueue.queue.length;
         const dataExtractorInterval = setInterval(async () => {
-            if (dataExtractorProgress < 80) {
-                dataExtractorProgress += 1;
-                const message = dataExtractorProgress % 5 === 0 ? 
-                    `Extracting business data (${dataExtractorProgress - 50}/30)` : 
-                    'Processing business information';
-                await updateTaskStatus(taskId, 'running', dataExtractorProgress, null, {}, message);
+            const processedCount = allProcessedResults.length;
+            const totalCount = initialQueueSize;
+            
+            if (totalCount > 0) {
+                // Calculate progress based on how many items have been processed
+                // Data extraction is about 35% of the total work (from progress 50 to 85)
+                const extractionProgress = 50 + Math.min(35, Math.floor((processedCount / totalCount) * 35));
+                await updateTaskStatus(taskId, 'running', extractionProgress, null, {});
             }
         }, 2000); // Update every 2 seconds
         
@@ -147,7 +152,7 @@ export async function runScrapingTask(task) {
         clearInterval(dataExtractorInterval);
         
         console.log(`Task ${taskId}: All DataExtractor workers finished.`);
-        await updateTaskStatus(taskId, 'running', 85, null, {}, 'Data extraction complete, processing results');
+        await updateTaskStatus(taskId, 'running', 85, null, {});
         
         // Process results
         const successfulResults = allProcessedResults
@@ -155,7 +160,7 @@ export async function runScrapingTask(task) {
             .map(r => r.data);
         
         console.log(`Task ${taskId}: Extracted ${successfulResults.length} successful results from ${sharedQueue.seenLinks.size} total links.`);
-        await updateTaskStatus(taskId, 'running', 90, null, {}, `Found ${successfulResults.length} businesses, preparing results`);
+        await updateTaskStatus(taskId, 'running', 90, null, {});
         
         // Save verification file for skipped links
         const skippedLinks = mainDataPro.getSkippedLinks();
@@ -164,12 +169,14 @@ export async function runScrapingTask(task) {
         }
         
         // Save final results
-        const { downloadLink, rowCount } = await saveTaskResults({
-            taskId,
-            userId,
-            config,
+        const { downloadLink, jsonDownloadLink, rowCount } = await saveResults({
+            user_id: userId,
+            task_id: taskId,
+            keywords: config.search_query,
+            states: 'multiple', // Simplified for new format
+            country: 'US', // Default, could be extracted from location_rules if needed
             processedResults: successfulResults,
-            dataFields
+            listFields: dataFields
         });
         
         // Calculate credits based on row count (each row = 1 credit)
@@ -178,11 +185,11 @@ export async function runScrapingTask(task) {
         // Deduct credits from user account
         await deductCredits(userId, creditsUsed, taskId, `Scraping task: ${searchQuery}`);
         
-        // Update final task status
+        // Update final task status - only using schema-compliant fields
         await updateTaskStatus(taskId, 'completed', 100, null, {
             total_results: rowCount,
             credits_used: creditsUsed
-        }, `Task completed successfully with ${rowCount} results`);
+        });
         
         console.log(`Task ${taskId}: Scraping completed successfully. Results: ${rowCount}, Credits used: ${creditsUsed}`);
         
@@ -190,6 +197,7 @@ export async function runScrapingTask(task) {
             success: true,
             taskId,
             resultUrl: downloadLink,
+            jsonResultUrl: jsonDownloadLink,
             rowCount,
             creditsUsed
         };
@@ -211,10 +219,9 @@ export async function runScrapingTask(task) {
  * @param {String} status - New status
  * @param {Number} progress - Progress percentage (0-100)
  * @param {String} errorMessage - Error message if failed
- * @param {Object} additionalData - Additional data to update
- * @param {String} progressMessage - Progress message to display
+ * @param {Object} additionalData - Additional data to update (must be schema-compliant)
  */
-async function updateTaskStatus(taskId, status, progress, errorMessage = null, additionalData = {}, progressMessage = null) {
+async function updateTaskStatus(taskId, status, progress, errorMessage = null, additionalData = {}) {
     try {
         const updateData = {
             status,
@@ -227,10 +234,6 @@ async function updateTaskStatus(taskId, status, progress, errorMessage = null, a
             updateData.error_message = errorMessage;
         }
         
-        if (progressMessage) {
-            updateData.progress_message = progressMessage;
-        }
-        
         const { error } = await supabaseAdmin
             .from('scraper_task')
             .update(updateData)
@@ -239,29 +242,9 @@ async function updateTaskStatus(taskId, status, progress, errorMessage = null, a
         if (error) {
             console.error(`Error updating task ${taskId}:`, error);
         } else {
-            console.log(`📝 Task ${taskId} status updated to: ${status} (${progress}%) - ${progressMessage || 'No message'}`);
+            console.log(`📝 Task ${taskId} status updated to: ${status} (${progress}%)`);
         }
     } catch (error) {
         console.error(`Error updating task status for ${taskId}:`, error);
     }
-}
-
-/**
- * Save task results using adapted parameters from task.config
- * @param {Object} params - Parameters object
- * @returns {Object} Results with download link and row count
- */
-async function saveTaskResults({ taskId, userId, config, processedResults, dataFields }) {
-    // Adapt parameters for existing saveResults function
-    const saveParams = {
-        user_id: userId,
-        task_id: taskId,
-        keywords: config.search_query,
-        states: 'multiple', // Simplified for new format
-        country: 'US', // Default, could be extracted from location_rules if needed
-        processedResults,
-        listFields: dataFields
-    };
-    
-    return await saveResults(saveParams);
 }

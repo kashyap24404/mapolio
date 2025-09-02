@@ -272,19 +272,26 @@ export async function saveResults({ user_id, task_id, keywords, states, country,
         await fs.writeFile(outputFilePath, "No data processed.\n", 'utf-8');
     }
 
-    // Generate download link and update final status
+    // Generate download links and update final status
     if (user_id && task_id) {
         const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
-        const downloadLink = `${baseUrl}/download/csv/${user_id}/${task_id}/${outputFileName}`;
+        const outputFileNameWithoutExt = outputFileName.replace(/\.[^/.]+$/, ""); // Remove extension
+        const csvDownloadLink = `${baseUrl}/download/csv/${user_id}/${task_id}/${outputFileName}`;
+        const jsonDownloadLink = `${baseUrl}/download/json/${user_id}/${task_id}/${outputFileNameWithoutExt}.json`;
         
-        // Update task with final results
+        // Update task with final results and both URLs
         await updateScrapingStatus(task_id, 'completed', { 
             progress: 100,
             total_results: processedResults.length,
-            result_url: downloadLink
+            result_csv_url: csvDownloadLink,
+            result_json_url: jsonDownloadLink
         });
         
-        return { downloadLink, rowCount: processedResults.length };
+        return { 
+            downloadLink: csvDownloadLink, 
+            jsonDownloadLink: jsonDownloadLink,
+            rowCount: processedResults.length 
+        };
     }
 
     // For local runs without user context

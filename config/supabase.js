@@ -56,9 +56,24 @@ export const checkUserCredits = async (userId, requiredCredits) => {
 
 // Helper function to deduct credits
 export const deductCredits = async (userId, amount, taskId, description) => {
+    // First, fetch the current credits
+    const { data: userData, error: fetchError } = await supabaseAdmin
+        .from('profiles')
+        .select('credits')
+        .eq('id', userId)
+        .single();
+    
+    if (fetchError) {
+        throw new Error(`Failed to fetch user credits: ${fetchError.message}`);
+    }
+    
+    // Calculate new credits value
+    const newCredits = userData.credits - amount;
+    
+    // Update with the new value
     const { error: profileError } = await supabaseAdmin
         .from('profiles')
-        .update({ credits: supabaseAdmin.raw('credits - ?', [amount]) })
+        .update({ credits: newCredits })
         .eq('id', userId);
     
     if (profileError) {

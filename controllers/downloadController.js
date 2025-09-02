@@ -1,11 +1,18 @@
 import path from 'path';
 
 export const downloadFile = (req, res) => {
-  const { user_id, task_id } = req.params;
-  // This file name must match the naming convention used in runScraping
-  const fileName = `results_${user_id}_${task_id}.csv`;
-  // Build the file path from the public folder
-  const filePath = path.join(process.cwd(), 'public', fileName);
+  const { user_id, task_id, filename } = req.params;
+  
+  // Check if filename is provided
+  let filePath;
+  if (filename) {
+    // Use the provided filename
+    filePath = path.join(process.cwd(), 'public', filename);
+  } else {
+    // Use the legacy naming convention
+    const fileName = `results_${user_id}_${task_id}.csv`;
+    filePath = path.join(process.cwd(), 'public', fileName);
+  }
 
   res.sendFile(filePath, (err) => {
     if (err) {
@@ -20,11 +27,18 @@ export const downloadFile = (req, res) => {
 };
 
 export const downloadJsonFile = (req, res) => {
-  const { user_id, task_id } = req.params;
-  // This file name must match the naming convention used in runScraping
-  const fileName = `results_${user_id}_${task_id}.json`;
-  // Build the file path from the public folder
-  const filePath = path.join(process.cwd(), 'public', fileName);
+  const { user_id, task_id, filename } = req.params;
+  
+  // Check if filename is provided
+  let filePath;
+  if (filename) {
+    // Use the provided filename
+    filePath = path.join(process.cwd(), 'public', filename);
+  } else {
+    // Use the legacy naming convention
+    const fileName = `results_${user_id}_${task_id}.json`;
+    filePath = path.join(process.cwd(), 'public', fileName);
+  }
 
   res.sendFile(filePath, (err) => {
     if (err) {

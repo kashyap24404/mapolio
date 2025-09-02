@@ -57,7 +57,7 @@ export default {
     },
 
     reviewExtraction: {
-        maxReviews: 10
+        maxReviews: 50
     },
 
     ratingFilter: {

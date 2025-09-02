@@ -42,6 +42,9 @@ class MainDataPro {
                     singleImage: advancedOptions.extract_single_image !== undefined ? 
                         advancedOptions.extract_single_image : 
                         scrapingConfig.processingOptions.singleImage,
+                    maxReviews: advancedOptions.max_reviews !== undefined ? 
+                        advancedOptions.max_reviews : 
+                        scrapingConfig.reviewExtraction.maxReviews,
                     ...advancedOptions
                 };
                 

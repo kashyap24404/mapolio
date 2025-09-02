@@ -20,7 +20,8 @@ import { supabaseAdmin } from '../config/supabase.js';
  *   "advanced_options": {
  *     "extract_single_image": true,
  *     "max_reviews": 50
- *   }
+ *   },
+ *   "total_selected_zip_codes": 36000  // Optional: Total ZIP codes for progress tracking
  * }
  */
 export const createTask = async (req, res) => {

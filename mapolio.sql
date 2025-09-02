@@ -76,17 +76,41 @@ CREATE TABLE public.scraper_ratings (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT scraper_ratings_pkey PRIMARY KEY (id)
 );
-CREATE TABLE public.scraper_task (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
-  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])),
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  config jsonb NOT NULL,
-  progress integer NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
-  total_results integer DEFAULT 0,
-  credits_used integer DEFAULT 0,
-  error_message text,
-  CONSTRAINT scraper_task_pkey PRIMARY KEY (id),
-  CONSTRAINT scraper_task_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
-);
+create table public.scraper_task (
+  id uuid not null default gen_random_uuid (),
+  user_id uuid not null,
+  status text not null default 'pending'::text,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now(),
+  config jsonb not null,
+  progress integer not null default 0,
+  total_results integer null default 0,
+  credits_used integer null default 0,
+  error_message text null,
+  result_json_url text null,
+  result_csv_url text null,
+  constraint scraper_task_pkey primary key (id),
+  constraint scraper_task_user_id_fkey foreign KEY (user_id) references profiles (id) on delete CASCADE,
+  constraint scraper_task_progress_check check (
+    (
+      (progress >= 0)
+      and (progress <= 100)
+    )
+  ),
+  constraint scraper_task_status_check check (
+    (
+      status = any (
+        array[
+          'pending'::text,
+          'running'::text,
+          'completed'::text,
+          'failed'::text
+        ]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create trigger handle_updated_at BEFORE
+update on scraper_task for EACH row
+execute FUNCTION moddatetime ();

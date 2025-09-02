@@ -32,11 +32,9 @@ router.get('/api/v1/status/:taskId', getStatus); // Can include user_id as query
 // Status update endpoint
 router.post('/update_status', updateStatus);
 
-// File download endpoint
-router.get('/download/csv/:user_id/:task_id', downloadFile);
-
-// Json File download endpoint
-router.get('/download/json/:user_id/:task_id', downloadJsonFile);
+// File download endpoints with optional filename parameter
+router.get('/download/csv/:user_id/:task_id/:filename?', downloadFile);
+router.get('/download/json/:user_id/:task_id/:filename?', downloadJsonFile);
 
 // Scraping request endpoint (legacy path kept for compatibility)
 // router.post('/check_request', startScrapingHandler);
