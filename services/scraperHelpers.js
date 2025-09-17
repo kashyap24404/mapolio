@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { supabaseAdmin } from '../config/supabase.js';
 import scrapingConfig from '../config/scrapingConfig.js';
-import { saveResultsToCsv } from '../utils/csvUtils.js';
+import { saveResultsToCsv, convertJsonToCsv } from '../utils/csvUtils.js';
 
 // Extract the needed configurations from the default export
 const { DEEP_SEARCH_CONFIG, STATE_ABBREVIATIONS } = scrapingConfig;
@@ -265,11 +265,17 @@ export async function saveResults({ user_id, task_id, keywords, states, country,
         await updateTaskProgress(task_id, 95);
     }
 
-    // Save results to CSV file
+    // Save results to JSON file first, then convert to CSV
     if (processedResults.length > 0) {
-        await saveResultsToCsv(outputFilePath, processedResults, listFields);
+        const jsonPath = outputFilePath.replace(/\.csv$/i, '.json');
+        // Save JSON first
+        await fs.writeFile(jsonPath, JSON.stringify(processedResults, null, 2), 'utf-8');
+        // Then convert JSON to CSV
+        await convertJsonToCsv(jsonPath, outputFilePath, listFields);
     } else {
         await fs.writeFile(outputFilePath, "No data processed.\n", 'utf-8');
+        const jsonPath = outputFilePath.replace(/\.csv$/i, '.json');
+        await fs.writeFile(jsonPath, JSON.stringify([], null, 2), 'utf-8');
     }
 
     // Generate download links and update final status

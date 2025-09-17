@@ -1,6 +1,7 @@
 // utils/csvUtils.js
 import { createObjectCsvWriter as createCsvWriter } from 'csv-writer';
 import fs from 'fs/promises';
+import csv from 'csv-parser';
 
 // The helper function writeCsvFromJsonData is no longer needed and has been removed.
 
@@ -77,7 +78,11 @@ export async function saveResultsToCsv(filePath, results, fields) {
     // Prepare records for CSV from the *original* results array
     const csvRecords = results.map(result => {
       const record = {};
-      const sourceData = result.data || {};
+      
+      // Check if result has the expected structure { data: {}, errors: {} }
+      // or if it's already the data object
+      const sourceData = result.data || result;
+      const sourceErrors = result.errors || {};
 
       for (const field of fields) {
         if (sourceData[field] && typeof sourceData[field] === 'object') {
@@ -90,7 +95,7 @@ export async function saveResultsToCsv(filePath, results, fields) {
       }
 
       // Add the errors object as a stringified JSON column
-      record.errors = JSON.stringify(result.errors || {});
+      record.errors = JSON.stringify(sourceErrors || {});
       return record;
     });
 
@@ -111,4 +116,78 @@ export async function saveResultsToCsv(filePath, results, fields) {
   }
 
   return `json:${jsonPath},csv:${filePath}`;
+}
+
+/**
+ * Alternative approach: Convert existing JSON file to CSV
+ * This ensures the CSV always matches the JSON data exactly
+ * 
+ * @param {string} jsonFilePath - Path to the JSON file
+ * @param {string} csvFilePath - Path where CSV should be saved
+ * @param {Array<string>} fields - Fields to include in CSV
+ * @returns {Promise<void>}
+ */
+export async function convertJsonToCsv(jsonFilePath, csvFilePath, fields) {
+  try {
+    // Read the JSON file
+    const jsonData = JSON.parse(await fs.readFile(jsonFilePath, 'utf8'));
+    
+    // If jsonData is not an array, wrap it in one
+    const resultsArray = Array.isArray(jsonData) ? jsonData : [jsonData];
+    
+    if (resultsArray.length === 0) {
+      console.log('[JSON->CSV] No data to convert. Creating empty CSV.');
+      const emptyHeaders = (fields || []).map(f => ({ id: f, title: f }));
+      const csvWriter = createCsvWriter({ path: csvFilePath, header: emptyHeaders });
+      await csvWriter.writeRecords([]);
+      return;
+    }
+    
+    // Prepare records for CSV
+    const csvRecords = resultsArray.map(item => {
+      const record = {};
+      
+      // Handle both structures: { data: {}, errors: {} } or just the data object
+      const sourceData = item.data || item;
+      const sourceErrors = item.errors || {};
+      
+      // Process each requested field
+      for (const field of fields) {
+        if (sourceData[field] !== undefined) {
+          if (typeof sourceData[field] === 'object') {
+            // Stringify complex objects
+            record[field] = JSON.stringify(sourceData[field]);
+          } else {
+            // Handle primitive values
+            record[field] = sourceData[field];
+          }
+        } else {
+          record[field] = ''; // Empty string for missing fields
+        }
+      }
+      
+      // Add errors column
+      record.errors = JSON.stringify(sourceErrors);
+      return record;
+    });
+    
+    // Define CSV headers
+    const csvHeaders = [...fields, 'errors'].map(field => ({ id: field, title: field }));
+    
+    // Write CSV file
+    const csvWriter = createCsvWriter({
+      path: csvFilePath,
+      header: csvHeaders,
+      encoding: 'utf8',
+      alwaysQuote: true,
+      fieldDelimiter: ','
+    });
+    
+    await csvWriter.writeRecords(csvRecords);
+    console.log(`[JSON->CSV] Successfully converted JSON to CSV: ${csvFilePath}`);
+    
+  } catch (error) {
+    console.error('[JSON->CSV] Error converting JSON to CSV:', error);
+    throw new Error('Failed to convert JSON to CSV: ' + error.message);
+  }
 }

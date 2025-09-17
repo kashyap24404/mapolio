@@ -37,6 +37,7 @@
     "openapi-fetch": "^0.14.0",
     "playwright": "^1.52.0",
     "recaptcha-solver": "^0.3.0",
+    "tunnelmole": "^2.4.0",
     "url": "^0.11.4",
     "uuid": "^11.1.0",
     "xlsx": "^0.18.5"

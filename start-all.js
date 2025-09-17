@@ -4,6 +4,9 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import apiRoutes from './routes/api.js';
 import WorkerListener from './worker-listener.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { tunnelmole } = require('tunnelmole');
 
 // Load environment variables
 dotenv.config();
@@ -23,6 +26,15 @@ app.use('/', apiRoutes);
 // Start server
 const server = app.listen(port, () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
+  // Start tunnelmole tunnel
+  (async () => {
+    try {
+      const url = await tunnelmole({ port });
+      console.log(`Tunnelmole tunnel established at: ${url}`);
+    } catch (err) {
+      console.error('Error starting tunnelmole tunnel:', err);
+    }
+  })();
 });
 
 // Initialize and start worker listener
