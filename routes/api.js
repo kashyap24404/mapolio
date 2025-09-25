@@ -1,6 +1,5 @@
 import express from 'express';
 import { updateStatus, getStatus, updateProgress } from '../controllers/statusController.js';
-import { downloadFile, downloadJsonFile } from '../controllers/downloadController.js';
 import { createTask, getTask, getUserTasks } from '../controllers/taskController.js';
 import { verifyJWT } from '../config/supabase.js';
 // Route scraping through communicator instead of direct controller
@@ -33,8 +32,6 @@ router.get('/api/v1/status/:taskId', getStatus); // Can include user_id as query
 router.post('/update_status', updateStatus);
 
 // File download endpoints with optional filename parameter
-router.get('/download/csv/:user_id/:task_id/:filename?', downloadFile);
-router.get('/download/json/:user_id/:task_id/:filename?', downloadJsonFile);
 
 // Scraping request endpoint (legacy path kept for compatibility)
 // router.post('/check_request', startScrapingHandler);

@@ -4,6 +4,7 @@ import path from 'path';
 import { supabaseAdmin } from '../config/supabase.js';
 import scrapingConfig from '../config/scrapingConfig.js';
 import { saveResultsToCsv, convertJsonToCsv } from '../utils/csvUtils.js';
+import uploadToStorage from '../utils/uploadToStorage.js';
 
 // Extract the needed configurations from the default export
 const { DEEP_SEARCH_CONFIG, STATE_ABBREVIATIONS } = scrapingConfig;
@@ -266,40 +267,43 @@ export async function saveResults({ user_id, task_id, keywords, states, country,
     }
 
     // Save results to JSON file first, then convert to CSV
+    const jsonPath = outputFilePath.replace(/\.csv$/i, '.json');
     if (processedResults.length > 0) {
-        const jsonPath = outputFilePath.replace(/\.csv$/i, '.json');
         // Save JSON first
         await fs.writeFile(jsonPath, JSON.stringify(processedResults, null, 2), 'utf-8');
         // Then convert JSON to CSV
         await convertJsonToCsv(jsonPath, outputFilePath, listFields);
     } else {
         await fs.writeFile(outputFilePath, "No data processed.\n", 'utf-8');
-        const jsonPath = outputFilePath.replace(/\.csv$/i, '.json');
         await fs.writeFile(jsonPath, JSON.stringify([], null, 2), 'utf-8');
     }
 
-    // Generate download links and update final status
-    if (user_id && task_id) {
-        const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
-        const outputFileNameWithoutExt = outputFileName.replace(/\.[^/.]+$/, ""); // Remove extension
-        const csvDownloadLink = `${baseUrl}/download/csv/${user_id}/${task_id}/${outputFileName}`;
-        const jsonDownloadLink = `${baseUrl}/download/json/${user_id}/${task_id}/${outputFileNameWithoutExt}.json`;
-        
-        // Update task with final results and both URLs
-        await updateScrapingStatus(task_id, 'completed', { 
-            progress: 100,
-            total_results: processedResults.length,
-            result_csv_url: csvDownloadLink,
-            result_json_url: jsonDownloadLink
-        });
-        
-        return { 
-            downloadLink: csvDownloadLink, 
-            jsonDownloadLink: jsonDownloadLink,
-            rowCount: processedResults.length 
-        };
-    }
-
-    // For local runs without user context
-    return { downloadLink: null, rowCount: processedResults.length };
+        // Upload files to storage and update final status
+        if (user_id && task_id) {
+            let csvStoragePath, jsonStoragePath;
+            try {
+                jsonStoragePath = await uploadToStorage(jsonPath, user_id, task_id, 'json');
+                csvStoragePath = await uploadToStorage(outputFilePath, user_id, task_id, 'csv');
+            } catch (error) {
+                console.error('Error uploading files to storage:', error);
+                throw new Error(`Upload failed: ${error.message}`);
+            }
+            
+            // Update task with final results and storage paths
+            await updateScrapingStatus(task_id, 'completed', {
+                progress: 100,
+                total_results: processedResults.length,
+                result_csv_url: csvStoragePath,
+                result_json_url: jsonStoragePath
+            });
+            
+            return {
+                downloadLink: csvStoragePath,
+                jsonDownloadLink: jsonStoragePath,
+                rowCount: processedResults.length
+            };
+        }
+    
+        // For local runs without user context - keep local files
+        return { downloadLink: null, rowCount: processedResults.length };
 }

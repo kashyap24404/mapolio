@@ -22,6 +22,8 @@
     "./services/*": "./services/*.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/lib-storage": "^3.0.0",
     "@supabase/mcp-server-supabase": "^0.4.5",
     "@supabase/supabase-js": "^2.49.1",
     "cheerio": "^1.1.2",

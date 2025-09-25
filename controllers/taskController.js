@@ -120,9 +120,24 @@ export const getTask = async (req, res) => {
             throw fetchError;
         }
 
+        // Construct direct download URLs
+        const baseUrl = process.env.SUPABASE_URL;
+        const bucket = 'user-tasks-store';
+        const csvPath = taskData.result_csv_url;
+        const jsonPath = taskData.result_json_url;
+        
+        const csvDownloadUrl = csvPath ? `${baseUrl}/storage/v1/object/authenticated/${bucket}/${csvPath}` : null;
+        const jsonDownloadUrl = jsonPath ? `${baseUrl}/storage/v1/object/authenticated/${bucket}/${jsonPath}` : null;
+        
+        const enhancedTask = {
+            ...taskData,
+            csv_download_url: csvDownloadUrl,
+            json_download_url: jsonDownloadUrl
+        };
+        
         res.json({
             success: true,
-            task: taskData
+            task: enhancedTask
         });
 
     } catch (error) {
@@ -162,13 +177,31 @@ export const getUserTasks = async (req, res) => {
             throw fetchError;
         }
 
+        // Construct direct download URLs for each task
+        const baseUrl = process.env.SUPABASE_URL;
+        const bucket = 'user-tasks-store';
+        
+        const enhancedTasks = tasks.map(task => {
+            const csvPath = task.result_csv_url;
+            const jsonPath = task.result_json_url;
+            
+            const csvDownloadUrl = csvPath ? `${baseUrl}/storage/v1/object/authenticated/${bucket}/${csvPath}` : null;
+            const jsonDownloadUrl = jsonPath ? `${baseUrl}/storage/v1/object/authenticated/${bucket}/${jsonPath}` : null;
+            
+            return {
+                ...task,
+                csv_download_url: csvDownloadUrl,
+                json_download_url: jsonDownloadUrl
+            };
+        });
+        
         res.json({
             success: true,
-            tasks: tasks,
+            tasks: enhancedTasks,
             pagination: {
                 limit: parseInt(limit),
                 offset: parseInt(offset),
-                total: tasks.length
+                total: enhancedTasks.length
             }
         });
 
